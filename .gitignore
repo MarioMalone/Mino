@@ -15,6 +15,10 @@ src-tauri/target/
 # WorkBuddy internal
 .workbuddy/
 
-# IDE
+# AI assistants
 .claude/
 .agents/
+CLAUDE.md
+
+# Project docs (local)
+docs/
