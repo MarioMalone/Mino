@@ -1,0 +1,2 @@
+# MSVC toolchain — Tauri recommended
+# Ensure Visual Studio Build Tools are installed with "C++ desktop development" workload
