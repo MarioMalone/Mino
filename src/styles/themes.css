@@ -104,6 +104,15 @@ body {
   opacity: 0.7;
 }
 
+.toolbar-btn.active {
+  background: var(--accent-color);
+  color: white;
+}
+
+.toolbar-btn.active:hover {
+  background: var(--accent-hover);
+}
+
 .toolbar-separator {
   width: 1px;
   height: 20px;
@@ -277,6 +286,23 @@ body {
 
 .milkdown .task-list-item input[type='checkbox'] {
   margin-right: 0.5em;
+}
+
+/* ===== Source Editor ===== */
+.source-editor {
+  width: 100%;
+  max-width: 780px;
+  min-height: 100%;
+  padding: 0;
+  border: none;
+  outline: none;
+  resize: none;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.75;
+  tab-size: 2;
 }
 
 /* ===== Status Bar ===== */
