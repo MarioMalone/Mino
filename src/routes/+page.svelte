@@ -2,9 +2,13 @@
   import { onMount, onDestroy, tick } from 'svelte'
   import { createEditor, getEditorMarkdown, destroyEditor, toggleBold, toggleItalic, toggleCode, toggleStrikethrough, onEditorChange, offEditorChange, insertTextAtCursor } from '$lib/editor'
   import { openFileDialog, saveFileDialog, readFileContent, writeFileContent, copyFile, getDirectory, getRelativePath } from '$lib/file'
+  import { createSplitView, destroySplitView, getSplitViewContent, isSplitViewActive } from '$lib/split-view'
   import SearchBar from '$lib/SearchBar.svelte'
   import OutlinePanel from '$lib/OutlinePanel.svelte'
+  import FileTree from '$lib/FileTree.svelte'
+  import ExportDialog from '$lib/ExportDialog.svelte'
   import '../styles/themes.css'
+  import 'katex/dist/katex.min.css'
 
   let editorContainer: HTMLDivElement
   let sourceTextarea: HTMLTextAreaElement
@@ -12,10 +16,15 @@
   let isModified = $state(false)
   let theme: 'light' | 'dark' = $state('light')
   let statusText = $state('就绪')
+  let wordCount = $state(0)
+  let charCount = $state(0)
+  let readTime = $state('')
 
   // Source mode state
   let isSourceMode = $state(false)
   let sourceContent = $state('')
+  // Split view mode state
+  let isSplitMode = $state(false)
 
   // Auto-save state
   let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
@@ -25,6 +34,13 @@
   let showSearch = $state(false)
   // Outline state
   let showOutline = $state(false)
+  // Recent files state
+  let showRecent = $state(false)
+  let recentFiles: { path: string; name: string; lastOpened: number }[] = $state([])
+  // File tree state
+  let showFileTree = $state(false)
+  // Export dialog state
+  let showExport = $state(false)
 
   const defaultContent = `# 欢迎使用 Mino / Welcome to Mino
 
@@ -55,6 +71,9 @@ Start writing your thoughts here!
       applyTheme()
     })
 
+    // Load recent files
+    loadRecentFiles()
+
     // Create editor
     console.log('[Mino] onMount starting, editorContainer:', editorContainer)
     await initEditor(defaultContent)
@@ -75,6 +94,8 @@ Start writing your thoughts here!
     window.addEventListener('keydown', handleKeydown)
     // Blur listener for focus-loss auto-save
     window.addEventListener('blur', handleBlur)
+    // Click outside to close recent files dropdown
+    window.addEventListener('click', handleGlobalClick)
   })
 
   /** Create editor and register change tracking */
@@ -92,7 +113,19 @@ Start writing your thoughts here!
     console.log('[Mino] Milkdown div:', editorContainer.querySelector('.milkdown'))
     onEditorChange(() => {
       isModified = true
+      const md = getEditorMarkdown()
+      updateWordCount(md)
     })
+    // Initial word count
+    updateWordCount(content)
+  }
+
+  function handleGlobalClick(e: MouseEvent) {
+    // Close recent files dropdown when clicking outside
+    const target = e.target as HTMLElement
+    if (!target.closest('.recent-files-wrapper')) {
+      showRecent = false
+    }
   }
 
   onDestroy(async () => {
@@ -100,6 +133,7 @@ Start writing your thoughts here!
     offEditorChange()
     window.removeEventListener('keydown', handleKeydown)
     window.removeEventListener('blur', handleBlur)
+    window.removeEventListener('click', handleGlobalClick)
     await destroyEditor()
   })
 
@@ -150,20 +184,37 @@ Start writing your thoughts here!
     return IMAGE_EXTENSIONS.includes(ext)
   }
 
-  async function handleImageDrop(e: DragEvent) {
+  function isMarkdownFile(path: string): boolean {
+    return path.toLowerCase().endsWith('.md')
+  }
+
+  async function handleDrop(e: DragEvent) {
     e.preventDefault()
     if (!e.dataTransfer) return
 
     const files = Array.from(e.dataTransfer.files)
-    for (const file of files) {
-      // Check if it's an image by file name
-      const name = file.name.toLowerCase()
-      const isImg = IMAGE_EXTENSIONS.some(ext => name.endsWith(`.${ext}`))
-      if (!isImg) continue
+    let hasMarkdown = false
 
-      // Get file path from the file object (Tauri exposes webkitRelativePath)
-      // For Tauri, we need to handle this differently - use the native file path
-      await insertImageFromFile(file)
+    for (const file of files) {
+      const name = file.name.toLowerCase()
+      if (name.endsWith('.md') && !hasMarkdown) {
+        // Open the first .md file dropped
+        hasMarkdown = true
+        try {
+          // Read file content from the File object
+          const content = await file.text()
+          currentFilePath = null // We don't have the path from File API
+          isModified = false
+          statusText = `已加载: ${file.name}`
+          await destroyEditor()
+          await initEditor(content)
+          updateWordCount(content)
+        } catch (err) {
+          statusText = `打开失败: ${err}`
+        }
+      } else if (IMAGE_EXTENSIONS.some(ext => name.endsWith(`.${ext}`))) {
+        await insertImageFromFile(file)
+      }
     }
   }
 
@@ -246,7 +297,11 @@ Start writing your thoughts here!
           break
         case '/':
           e.preventDefault()
-          await toggleSourceMode()
+          if (e.shiftKey) {
+            await toggleSplitMode()
+          } else {
+            await toggleSourceMode()
+          }
           break
       }
     }
@@ -271,7 +326,9 @@ Start writing your thoughts here!
       // Re-create editor with new content
       await destroyEditor()
       await initEditor(content)
+      updateWordCount(content)
       startAutoSave()
+      addRecentFile(path)
     } catch (err) {
       statusText = `打开失败: ${err}`
     }
@@ -280,10 +337,11 @@ Start writing your thoughts here!
   async function doSave(): Promise<boolean> {
     if (!currentFilePath) return false
     try {
-      const content = isSourceMode ? sourceContent : getEditorMarkdown()
+      const content = isSplitMode ? getSplitViewContent() : (isSourceMode ? sourceContent : getEditorMarkdown())
       await writeFileContent(currentFilePath, content)
       isModified = false
       statusText = `已保存: ${currentFilePath.split('\\').pop()}`
+      addRecentFile(currentFilePath)
       return true
     } catch (err) {
       statusText = `保存失败: ${err}`
@@ -319,12 +377,31 @@ Start writing your thoughts here!
   // ===== Source Mode Toggle =====
 
   async function toggleSourceMode() {
+    if (isSplitMode) {
+      // Exit split mode first
+      const content = getSplitViewContent()
+      await destroySplitView()
+      isSplitMode = false
+      if (isSourceMode) {
+        sourceContent = content
+        isModified = true
+        statusText = '切换到源码模式'
+      } else {
+        isSourceMode = true
+        sourceContent = content
+        isModified = true
+        statusText = '切换到源码模式'
+      }
+      return
+    }
+
     if (isSourceMode) {
       // Save current source content before switching
       const content = sourceContent || '# 新文档\n\n开始写下你的想法吧！\n\nStart writing your thoughts here!\n'
       isSourceMode = false
       await destroyEditor()
       await initEditor(content)
+      updateWordCount(content)
       isModified = true
       statusText = '切换到即时预览'
     } else {
@@ -338,6 +415,180 @@ Start writing your thoughts here!
     }
   }
 
+  // ===== Word Count =====
+
+  function updateWordCount(text: string) {
+    // Remove markdown syntax for accurate count
+    const plainText = text
+      .replace(/```[\s\S]*?```/g, '') // code blocks
+      .replace(/`[^`]+`/g, '') // inline code
+      .replace(/!?\[.*?\]\(.*?\)/g, '') // links/images
+      .replace(/#{1,6}\s/g, '') // headings
+      .replace(/[*_~]+/g, '') // formatting
+      .replace(/---/g, '') // hr
+      .replace(/>/g, '') // blockquote
+      .trim()
+
+    // Character count (excluding whitespace)
+    charCount = plainText.replace(/\s/g, '').length
+
+    // Word count: Chinese chars count as 1 word each, English words split by space
+    const chineseChars = (plainText.match(/[一-鿿㐀-䶿]/g) || []).length
+    const englishText = plainText.replace(/[一-鿿㐀-䶿]/g, ' ')
+    const englishWords = englishText.split(/\s+/).filter(w => w.length > 0).length
+    wordCount = chineseChars + englishWords
+
+    // Reading time estimate: ~400 Chinese chars/min or ~200 English words/min
+    const chineseReadTime = chineseChars / 400
+    const englishReadTime = englishWords / 200
+    const totalMinutes = Math.ceil(chineseReadTime + englishReadTime)
+    if (totalMinutes < 1) {
+      readTime = '< 1 分钟'
+    } else {
+      readTime = `≈ ${totalMinutes} 分钟`
+    }
+  }
+
+  // ===== Export =====
+
+  function getExportContent(): string {
+    if (isSplitMode) return getSplitViewContent()
+    if (isSourceMode) return sourceContent
+    return getEditorMarkdown()
+  }
+
+  // ===== File Tree =====
+
+  async function handleFileTreeSelect(path: string) {
+    try {
+      statusText = '正在打开...'
+      const content = await readFileContent(path)
+      currentFilePath = path
+      isModified = false
+      statusText = `已加载: ${path.split('\\').pop()}`
+
+      if (isSplitMode) {
+        await destroySplitView()
+        isSplitMode = false
+      }
+      if (isSourceMode) {
+        isSourceMode = false
+      }
+      await destroyEditor()
+      await initEditor(content)
+      updateWordCount(content)
+      startAutoSave()
+      addRecentFile(path)
+    } catch (err) {
+      statusText = `打开失败: ${err}`
+    }
+  }
+
+  // ===== Recent Files =====
+
+  const RECENT_FILES_KEY = 'mino-recent-files'
+  const MAX_RECENT_FILES = 10
+
+  function loadRecentFiles() {
+    try {
+      const stored = localStorage.getItem(RECENT_FILES_KEY)
+      if (stored) {
+        recentFiles = JSON.parse(stored)
+      }
+    } catch {
+      recentFiles = []
+    }
+  }
+
+  function saveRecentFiles() {
+    try {
+      localStorage.setItem(RECENT_FILES_KEY, JSON.stringify(recentFiles))
+    } catch {
+      // Ignore storage errors
+    }
+  }
+
+  function addRecentFile(path: string) {
+    const name = path.split('\\').pop() ?? path.split('/').pop() ?? path
+    // Remove existing entry for same path
+    recentFiles = recentFiles.filter(f => f.path !== path)
+    // Add to front
+    recentFiles = [{ path, name, lastOpened: Date.now() }, ...recentFiles].slice(0, MAX_RECENT_FILES)
+    saveRecentFiles()
+  }
+
+  async function openRecentFile(path: string) {
+    showRecent = false
+    try {
+      statusText = '正在打开...'
+      const content = await readFileContent(path)
+      currentFilePath = path
+      isModified = false
+      statusText = `已加载: ${path.split('\\').pop()}`
+      await destroyEditor()
+      await initEditor(content)
+      updateWordCount(content)
+      startAutoSave()
+    } catch (err) {
+      statusText = `打开失败: ${err}`
+      // Remove from recent if file can't be opened
+      recentFiles = recentFiles.filter(f => f.path !== path)
+      saveRecentFiles()
+    }
+  }
+
+  function clearRecentFiles() {
+    recentFiles = []
+    saveRecentFiles()
+    showRecent = false
+  }
+
+  function formatRelativeTime(timestamp: number): string {
+    const now = Date.now()
+    const diff = now - timestamp
+    const minutes = Math.floor(diff / 60000)
+    const hours = Math.floor(diff / 3600000)
+    const days = Math.floor(diff / 86400000)
+    if (minutes < 1) return '刚刚'
+    if (minutes < 60) return `${minutes} 分钟前`
+    if (hours < 24) return `${hours} 小时前`
+    if (days < 30) return `${days} 天前`
+    return new Date(timestamp).toLocaleDateString('zh-CN')
+  }
+
+  // ===== Split View Mode =====
+
+  async function toggleSplitMode() {
+    if (isSplitMode) {
+      // Switch back to single pane WYSIWYG
+      const content = getSplitViewContent()
+      await destroySplitView()
+      isSplitMode = false
+      await initEditor(content)
+      updateWordCount(content)
+      isModified = true
+      statusText = '切换到即时预览'
+    } else {
+      // Switch to split view
+      let content: string
+      if (isSourceMode) {
+        content = sourceContent
+        isSourceMode = false
+      } else {
+        content = getEditorMarkdown()
+      }
+      await destroyEditor()
+      isSplitMode = true
+      await tick()
+      if (editorContainer) {
+        await createSplitView(editorContainer, content)
+        updateWordCount(content)
+        isModified = true
+        statusText = '切换到双栏模式'
+      }
+    }
+  }
+
   function getFileName(): string {
     if (!currentFilePath) return isModified ? '* 新文档' : '新文档'
     const name = currentFilePath.split('\\').pop() ?? ''
@@ -347,6 +598,8 @@ Start writing your thoughts here!
 
 <SearchBar bind:visible={showSearch} />
 <OutlinePanel bind:visible={showOutline} />
+<FileTree bind:visible={showFileTree} onFileSelect={handleFileTreeSelect} />
+<ExportDialog bind:visible={showExport} {currentFilePath} getContent={getExportContent} />
 
 <div class="app-container">
   <!-- Toolbar -->
@@ -369,6 +622,14 @@ Start writing your thoughts here!
         <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
         <polyline points="17 21 17 13 7 13 7 21"/>
         <polyline points="7 3 7 8 15 8"/>
+      </svg>
+    </button>
+
+    <button class="toolbar-btn" title="导出" onclick={() => showExport = true}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
       </svg>
     </button>
 
@@ -402,6 +663,43 @@ Start writing your thoughts here!
 
     <div class="toolbar-separator"></div>
 
+    <button class="toolbar-btn" class:active={showFileTree} title="文件树" onclick={() => showFileTree = !showFileTree}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+      </svg>
+    </button>
+
+    <!-- Recent Files -->
+    <div class="recent-files-wrapper">
+      <button class="toolbar-btn" title="最近打开" onclick={() => showRecent = !showRecent}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12 6 12 12 16 14"/>
+        </svg>
+      </button>
+      {#if showRecent}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="recent-dropdown" onclick={(e) => e.stopPropagation()}>
+          <div class="recent-header">
+            <span>最近打开</span>
+            {#if recentFiles.length > 0}
+              <button class="recent-clear-btn" onclick={clearRecentFiles}>清空</button>
+            {/if}
+          </div>
+          {#if recentFiles.length === 0}
+            <div class="recent-empty">暂无记录</div>
+          {:else}
+            {#each recentFiles as file}
+              <button class="recent-item" onclick={() => openRecentFile(file.path)} title={file.path}>
+                <span class="recent-name">{file.name}</span>
+                <span class="recent-time">{formatRelativeTime(file.lastOpened)}</span>
+              </button>
+            {/each}
+          {/if}
+        </div>
+      {/if}
+    </div>
+
     <button class="toolbar-btn" title="大纲导航" onclick={() => showOutline = !showOutline}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <line x1="8" y1="6" x2="21" y2="6"/>
@@ -410,6 +708,12 @@ Start writing your thoughts here!
         <line x1="3" y1="6" x2="3.01" y2="6"/>
         <line x1="3" y1="12" x2="3.01" y2="12"/>
         <line x1="3" y1="18" x2="3.01" y2="18"/>
+      </svg>
+    </button>
+    <button class="toolbar-btn" class:active={isSplitMode} title="双栏模式 (Ctrl+Shift+/)" onclick={toggleSplitMode}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+        <line x1="12" y1="3" x2="12" y2="21"/>
       </svg>
     </button>
     <button class="toolbar-btn" class:active={isSourceMode} title="源码模式 (Ctrl+/)" onclick={toggleSourceMode}>
@@ -448,13 +752,13 @@ Start writing your thoughts here!
 
   <!-- Editor Area -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="editor-wrapper" ondrop={handleImageDrop} ondragover={(e) => e.preventDefault()} onpaste={handleImagePaste}>
+  <div class="editor-wrapper" ondrop={handleDrop} ondragover={(e) => e.preventDefault()} onpaste={handleImagePaste}>
     {#if isSourceMode}
       <textarea
         class="source-editor"
         bind:this={sourceTextarea}
         bind:value={sourceContent}
-        oninput={() => { isModified = true }}
+        oninput={() => { isModified = true; updateWordCount(sourceContent) }}
         spellcheck="false"
       ></textarea>
     {:else}
@@ -465,6 +769,7 @@ Start writing your thoughts here!
   <!-- Status Bar -->
   <div class="status-bar">
     <span>{statusText}</span>
+    <span class="status-center">{wordCount} 字 · {charCount} 字符 · {readTime}</span>
     <span>{theme === 'dark' ? '暗色' : '亮色'}模式</span>
   </div>
 </div>

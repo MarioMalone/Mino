@@ -10,7 +10,7 @@ export async function openFileDialog(): Promise<string | null> {
         { name: 'All Files', extensions: ['*'] }
       ]
     })
-    if (selected === null || selected === false || selected === undefined) return null
+    if (selected === null || selected === undefined) return null
     return typeof selected === 'string' ? selected : null
   } catch (err) {
     console.error('openFileDialog error:', err)
