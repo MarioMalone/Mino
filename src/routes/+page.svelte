@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte'
+  import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
   import { createEditor, getEditorMarkdown, destroyEditor, toggleBold, toggleItalic, toggleCode, toggleStrikethrough, onEditorChange, offEditorChange, insertTextAtCursor, getEditorInstance } from '$lib/editor'
   import { openFileDialog, saveFileDialog, readFileContent, writeFileContent, copyFile, getDirectory, getRelativePath, checkWebView2 } from '$lib/file'
   import { createSplitView, destroySplitView, getSplitViewContent, isSplitViewActive } from '$lib/split-view'
@@ -285,6 +286,10 @@ Start writing your thoughts here!
   async function handleKeydown(e: KeyboardEvent) {
     if (e.ctrlKey || e.metaKey) {
       switch (e.key.toLowerCase()) {
+        case 'n':
+          e.preventDefault()
+          await handleNew()
+          break
         case 's':
           e.preventDefault()
           await handleSave()
@@ -390,12 +395,36 @@ Start writing your thoughts here!
   }
 
   async function handleNew() {
+    // Open a new window for the new document
+    try {
+      const label = 'mino-' + Date.now()
+      const webview = new WebviewWindow(label, {
+        url: '/',
+        title: 'Mino',
+        width: 1000,
+        height: 700,
+        minWidth: 600,
+        minHeight: 400,
+      })
+      webview.once('tauri://error', (e) => {
+        console.error('[Mino] Failed to open new window:', e)
+        // Fallback: reset current editor
+        resetToNewFile()
+      })
+    } catch (err) {
+      console.error('[Mino] New window error:', err)
+      resetToNewFile()
+    }
+  }
+
+  function resetToNewFile() {
     stopAutoSave()
     currentFilePath = null
     isModified = false
     statusText = '新建文件'
-    await destroyEditor()
-    await initEditor('# 新文档\n\n开始写下你的想法吧！\n\nStart writing your thoughts here!\n')
+    destroyEditor().then(() => {
+      initEditor('# 新文档\n\n开始写下你的想法吧！\n\nStart writing your thoughts here!\n')
+    })
   }
 
   // ===== Source Mode Toggle =====
@@ -656,7 +685,7 @@ Start writing your thoughts here!
 <div class="app-container">
   <!-- Toolbar -->
   <div class="toolbar">
-    <button class="toolbar-btn" title="新建 (Ctrl+N)" onclick={handleNew}>
+    <button class="toolbar-btn" title="新窗口 (Ctrl+N)" onclick={handleNew}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
         <polyline points="14 2 14 8 20 8"/>
