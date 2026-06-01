@@ -42,6 +42,14 @@ export async function copyFile(src: string, destDir: string): Promise<string> {
 }
 
 /**
+ * Check if WebView2 runtime is installed on the system.
+ * Returns { installed: boolean, version: string | null }
+ */
+export async function checkWebView2(): Promise<{ installed: boolean; version: string | null }> {
+  return await invoke('check_webview2')
+}
+
+/**
  * Get the directory of a file path.
  */
 export function getDirectory(filePath: string): string {

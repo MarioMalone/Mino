@@ -2,6 +2,7 @@ mod sidecar;
 
 use std::fs;
 use std::path::Path;
+use std::process::Command as StdCommand;
 use serde::Serialize;
 
 #[tauri::command]
@@ -142,6 +143,47 @@ fn get_file_info(path: String) -> Result<serde_json::Value, String> {
     }))
 }
 
+/// Check if WebView2 runtime is installed on Windows.
+/// Returns { installed: bool, version: String? }
+#[tauri::command]
+fn check_webview2() -> Result<serde_json::Value, String> {
+    // Registry paths where WebView2 runtime is registered
+    let paths = [
+        r"HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BEE-13A6279B0900}",
+        r"HKCU\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BEE-13A6279B0900}",
+        r"HKLM\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BEE-13A6279B0900}",
+    ];
+
+    for path in &paths {
+        if let Ok(output) = StdCommand::new("reg")
+            .args(["query", path, "/v", "pv"])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            // Look for pv REG_SZ x.x.x.x
+            for line in stdout.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("pv") && trimmed.contains("REG_SZ") {
+                    if let Some(version) = trimmed.split("REG_SZ").nth(1) {
+                        let version = version.trim();
+                        if !version.is_empty() {
+                            return Ok(serde_json::json!({
+                                "installed": true,
+                                "version": version
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(serde_json::json!({
+        "installed": false,
+        "version": null
+    }))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -151,6 +193,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             read_file, write_file, copy_file,
             read_directory, read_file_bytes, get_file_info,
+            check_webview2,
             sidecar::check_pandoc, sidecar::get_pandoc_version,
             sidecar::export_with_pandoc, sidecar::get_export_formats
         ])

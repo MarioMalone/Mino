@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte'
   import { createEditor, getEditorMarkdown, destroyEditor, toggleBold, toggleItalic, toggleCode, toggleStrikethrough, onEditorChange, offEditorChange, insertTextAtCursor, getEditorInstance } from '$lib/editor'
-  import { openFileDialog, saveFileDialog, readFileContent, writeFileContent, copyFile, getDirectory, getRelativePath } from '$lib/file'
+  import { openFileDialog, saveFileDialog, readFileContent, writeFileContent, copyFile, getDirectory, getRelativePath, checkWebView2 } from '$lib/file'
   import { createSplitView, destroySplitView, getSplitViewContent, isSplitViewActive } from '$lib/split-view'
   import SearchBar from '$lib/SearchBar.svelte'
   import OutlinePanel from '$lib/OutlinePanel.svelte'
@@ -65,6 +65,19 @@ Start writing your thoughts here!
 `
 
   onMount(async () => {
+    // Check WebView2 runtime availability
+    try {
+      const wv2 = await checkWebView2()
+      if (!wv2.installed) {
+        statusText = '⚠️ WebView2 运行时未安装，部分功能可能不可用'
+        console.warn('[Mino] WebView2 runtime not found')
+      } else {
+        console.log('[Mino] WebView2 version:', wv2.version)
+      }
+    } catch (e) {
+      console.warn('[Mino] WebView2 check failed:', e)
+    }
+
     // Detect system theme preference
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
     theme = prefersDark ? 'dark' : 'light'
