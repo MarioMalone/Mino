@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build & Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Tauri updater signing key (generate with: cargo tauri signer generate -w ~/.tauri/mino.key)
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Mino ${{ github.ref_name }}"
+          releaseBody: |
+            ## Mino ${{ github.ref_name }}
+
+            轻量化 Markdown 即时预览编辑器
+
+            ### 安装说明
+            1. 下载 `.msi` 安装包
+            2. 运行安装程序
+            3. 如遇 SmartScreen 警告，点击"更多信息" → "仍要运行"
+
+            ### 系统要求
+            - Windows 10/11
+            - WebView2 运行时（Windows 11 自带，Windows 10 会自动提示安装）
+          releaseDraft: true
+          prerelease: false
