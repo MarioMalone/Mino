@@ -10,6 +10,7 @@
   import ExportDialog from '$lib/ExportDialog.svelte'
   import PerfPanel from '$lib/PerfPanel.svelte'
   import { runBenchmark } from '$lib/perf'
+  import { t, locale } from '$lib/i18n'
   import '../styles/themes.css'
   import 'katex/dist/katex.min.css'
 
@@ -18,7 +19,7 @@
   let currentFilePath: string | null = $state(null)
   let isModified = $state(false)
   let theme: 'light' | 'dark' = $state('light')
-  let statusText = $state('就绪')
+  let statusText = $state('')
   let wordCount = $state(0)
   let charCount = $state(0)
   let readTime = $state('')
@@ -70,7 +71,7 @@ Start writing your thoughts here!
     try {
       const wv2 = await checkWebView2()
       if (!wv2.installed) {
-        statusText = '⚠️ WebView2 运行时未安装，部分功能可能不可用'
+        statusText = $t('status.wv2Missing')
         console.warn('[Mino] WebView2 runtime not found')
       } else {
         console.log('[Mino] WebView2 version:', wv2.version)
@@ -243,12 +244,12 @@ Start writing your thoughts here!
           const content = await file.text()
           currentFilePath = null // We don't have the path from File API
           isModified = false
-          statusText = `已加载: ${file.name}`
+          statusText = `${$t('status.opened')}: ${file.name}`
           await destroyEditor()
           await initEditor(content)
           updateWordCount(content)
         } catch (err) {
-          statusText = `打开失败: ${err}`
+          statusText = `${$t('status.openFailed')}: ${err}`
         }
       } else if (IMAGE_EXTENSIONS.some(ext => name.endsWith(`.${ext}`))) {
         await insertImageFromFile(file)
@@ -283,7 +284,7 @@ Start writing your thoughts here!
           const dataUrl = reader.result as string
           insertTextAtCursor(`![${file.name}](${dataUrl})`)
           isModified = true
-          statusText = `已插入图片: ${file.name}`
+          statusText = `${$t('status.imgInserted')}: ${file.name}`
         }
         reader.readAsDataURL(file)
       } else {
@@ -293,12 +294,12 @@ Start writing your thoughts here!
           const dataUrl = reader.result as string
           insertTextAtCursor(`![${file.name}](${dataUrl})`)
           isModified = true
-          statusText = `已插入图片: ${file.name}`
+          statusText = `${$t('status.imgInserted')}: ${file.name}`
         }
         reader.readAsDataURL(file)
       }
     } catch (err) {
-      statusText = `图片插入失败: ${err}`
+      statusText = `${$t('status.imgInsertFailed')}: ${err}`
     }
   }
 
@@ -365,11 +366,11 @@ Start writing your thoughts here!
       const path = await openFileDialog()
       if (!path) return
 
-      statusText = '正在打开...'
+      statusText = $t('status.opening')
       const content = await readFileContent(path)
       currentFilePath = path
       isModified = false
-      statusText = `已加载: ${path.split('\\').pop()}`
+      statusText = `${$t('status.opened')}: ${path.split('\\').pop()}`
 
       // Re-create editor with new content
       await destroyEditor()
@@ -378,7 +379,7 @@ Start writing your thoughts here!
       startAutoSave()
       addRecentFile(path)
     } catch (err) {
-      statusText = `打开失败: ${err}`
+      statusText = `${$t('status.openFailed')}: ${err}`
     }
   }
 
@@ -388,11 +389,11 @@ Start writing your thoughts here!
       const content = isSplitMode ? getSplitViewContent() : (isSourceMode ? sourceContent : getEditorMarkdown())
       await writeFileContent(currentFilePath, content)
       isModified = false
-      statusText = `已保存: ${currentFilePath.split('\\').pop()}`
+      statusText = `${$t('status.saved')}: ${currentFilePath.split('\\').pop()}`
       addRecentFile(currentFilePath)
       return true
     } catch (err) {
-      statusText = `保存失败: ${err}`
+      statusText = `${$t('status.saveFailed')}: ${err}`
       return false
     }
   }
@@ -405,11 +406,11 @@ Start writing your thoughts here!
         currentFilePath = path
       }
 
-      statusText = '正在保存...'
+      statusText = $t('status.saving')
       await doSave()
       resetAutoSave()
     } catch (err) {
-      statusText = `保存失败: ${err}`
+      statusText = `${$t('status.saveFailed')}: ${err}`
     }
   }
 
@@ -440,7 +441,7 @@ Start writing your thoughts here!
     stopAutoSave()
     currentFilePath = null
     isModified = false
-    statusText = '新建文件'
+    statusText = $t('status.newFile')
     destroyEditor().then(() => {
       initEditor('# 新文档\n\n开始写下你的想法吧！\n\nStart writing your thoughts here!\n')
     })
@@ -457,12 +458,12 @@ Start writing your thoughts here!
       if (isSourceMode) {
         sourceContent = content
         isModified = true
-        statusText = '切换到源码模式'
+        statusText = $t('status.sourceMode')
       } else {
         isSourceMode = true
         sourceContent = content
         isModified = true
-        statusText = '切换到源码模式'
+        statusText = $t('status.sourceMode')
       }
       return
     }
@@ -475,7 +476,7 @@ Start writing your thoughts here!
       await initEditor(content)
       updateWordCount(content)
       isModified = true
-      statusText = '切换到即时预览'
+      statusText = $t('status.previewMode')
     } else {
       // Capture current editor content before destroying
       const md = getEditorMarkdown()
@@ -483,7 +484,7 @@ Start writing your thoughts here!
       await destroyEditor()
       isSourceMode = true
       isModified = true
-      statusText = '切换到源码模式'
+      statusText = $t('status.sourceMode')
     }
   }
 
@@ -515,9 +516,9 @@ Start writing your thoughts here!
     const englishReadTime = englishWords / 200
     const totalMinutes = Math.ceil(chineseReadTime + englishReadTime)
     if (totalMinutes < 1) {
-      readTime = '< 1 分钟'
+      readTime = $t('status.readTime.lt1')
     } else {
-      readTime = `≈ ${totalMinutes} 分钟`
+      readTime = $t('status.readTime.approx', { n: totalMinutes })
     }
   }
 
@@ -534,25 +535,25 @@ Start writing your thoughts here!
   async function runPerfBench() {
     const instance = getEditorInstance()
     if (!instance) {
-      statusText = '请先打开编辑器'
+      statusText = $t('status.perfNoEditor')
       return
     }
     if (isSourceMode || isSplitMode) {
-      statusText = '请切换到即时预览模式再运行性能测试'
+      statusText = $t('status.perfNeedPreview')
       return
     }
 
     showPerf = true
-    statusText = '正在运行性能基准测试...'
+    statusText = $t('status.perfRunning')
 
     try {
       const result = await runBenchmark(instance)
       perfPanelRef?.setMetrics(result)
       statusText = result.inputLatencyP95 <= result.target
-        ? `性能测试通过: P95=${result.inputLatencyP95.toFixed(1)}ms`
-        : `性能测试未达标: P95=${result.inputLatencyP95.toFixed(1)}ms`
+        ? `${$t('status.perfPassed')}: P95=${result.inputLatencyP95.toFixed(1)}ms`
+        : `${$t('status.perfFailed')}: P95=${result.inputLatencyP95.toFixed(1)}ms`
     } catch (err) {
-      statusText = `性能测试失败: ${err}`
+      statusText = `${$t('status.perfFailed')}: ${err}`
     }
   }
 
@@ -560,11 +561,11 @@ Start writing your thoughts here!
 
   async function handleFileTreeSelect(path: string) {
     try {
-      statusText = '正在打开...'
+      statusText = $t('status.opening')
       const content = await readFileContent(path)
       currentFilePath = path
       isModified = false
-      statusText = `已加载: ${path.split('\\').pop()}`
+      statusText = `${$t('status.opened')}: ${path.split('\\').pop()}`
 
       if (isSplitMode) {
         await destroySplitView()
@@ -579,7 +580,7 @@ Start writing your thoughts here!
       startAutoSave()
       addRecentFile(path)
     } catch (err) {
-      statusText = `打开失败: ${err}`
+      statusText = `${$t('status.openFailed')}: ${err}`
     }
   }
 
@@ -619,17 +620,17 @@ Start writing your thoughts here!
   async function openRecentFile(path: string) {
     showRecent = false
     try {
-      statusText = '正在打开...'
+      statusText = $t('status.opening')
       const content = await readFileContent(path)
       currentFilePath = path
       isModified = false
-      statusText = `已加载: ${path.split('\\').pop()}`
+      statusText = `${$t('status.opened')}: ${path.split('\\').pop()}`
       await destroyEditor()
       await initEditor(content)
       updateWordCount(content)
       startAutoSave()
     } catch (err) {
-      statusText = `打开失败: ${err}`
+      statusText = `${$t('status.openFailed')}: ${err}`
       // Remove from recent if file can't be opened
       recentFiles = recentFiles.filter(f => f.path !== path)
       saveRecentFiles()
@@ -648,11 +649,11 @@ Start writing your thoughts here!
     const minutes = Math.floor(diff / 60000)
     const hours = Math.floor(diff / 3600000)
     const days = Math.floor(diff / 86400000)
-    if (minutes < 1) return '刚刚'
-    if (minutes < 60) return `${minutes} 分钟前`
-    if (hours < 24) return `${hours} 小时前`
-    if (days < 30) return `${days} 天前`
-    return new Date(timestamp).toLocaleDateString('zh-CN')
+    if (minutes < 1) return $t('time.justNow')
+    if (minutes < 60) return $t('time.minutesAgo', { n: minutes })
+    if (hours < 24) return $t('time.hoursAgo', { n: hours })
+    if (days < 30) return $t('time.daysAgo', { n: days })
+    return new Date(timestamp).toLocaleDateString($locale === 'zh' ? 'zh-CN' : 'en-US')
   }
 
   // ===== Split View Mode =====
@@ -666,7 +667,7 @@ Start writing your thoughts here!
       await initEditor(content)
       updateWordCount(content)
       isModified = true
-      statusText = '切换到即时预览'
+      statusText = $t('status.previewMode')
     } else {
       // Switch to split view
       let content: string
@@ -683,7 +684,7 @@ Start writing your thoughts here!
         await createSplitView(editorContainer, content)
         updateWordCount(content)
         isModified = true
-        statusText = '切换到双栏模式'
+        statusText = $t('status.splitMode')
       }
     }
   }
@@ -704,7 +705,7 @@ Start writing your thoughts here!
 <div class="app-container">
   <!-- Toolbar -->
   <div class="toolbar">
-    <button class="toolbar-btn" title="新窗口 (Ctrl+N)" onclick={handleNew}>
+    <button class="toolbar-btn" title={$t('toolbar.new')} onclick={handleNew}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
         <polyline points="14 2 14 8 20 8"/>
@@ -712,12 +713,12 @@ Start writing your thoughts here!
         <line x1="9" y1="15" x2="15" y2="15"/>
       </svg>
     </button>
-    <button class="toolbar-btn" title="打开 (Ctrl+O)" onclick={handleOpen}>
+    <button class="toolbar-btn" title={$t('toolbar.open')} onclick={handleOpen}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
       </svg>
     </button>
-    <button class="toolbar-btn" title="保存 (Ctrl+S)" onclick={handleSave}>
+    <button class="toolbar-btn" title={$t('toolbar.save')} onclick={handleSave}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
         <polyline points="17 21 17 13 7 13 7 21"/>
@@ -725,7 +726,7 @@ Start writing your thoughts here!
       </svg>
     </button>
 
-    <button class="toolbar-btn" title="导出" onclick={() => showExport = true}>
+    <button class="toolbar-btn" title={$t('toolbar.export')} onclick={() => showExport = true}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
         <polyline points="7 10 12 15 17 10"/>
@@ -735,26 +736,26 @@ Start writing your thoughts here!
 
     <div class="toolbar-separator"></div>
 
-    <button class="toolbar-btn" title="加粗 (Ctrl+B)" onclick={toggleBold}>
+    <button class="toolbar-btn" title={$t('toolbar.bold')} onclick={toggleBold}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/>
         <path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/>
       </svg>
     </button>
-    <button class="toolbar-btn" title="斜体 (Ctrl+I)" onclick={toggleItalic}>
+    <button class="toolbar-btn" title={$t('toolbar.italic')} onclick={toggleItalic}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <line x1="19" y1="4" x2="10" y2="4"/>
         <line x1="14" y1="20" x2="5" y2="20"/>
         <line x1="15" y1="4" x2="9" y2="20"/>
       </svg>
     </button>
-    <button class="toolbar-btn" title="行内代码 (Ctrl+`)" onclick={toggleCode}>
+    <button class="toolbar-btn" title={$t('toolbar.code')} onclick={toggleCode}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <polyline points="16 18 22 12 16 6"/>
         <polyline points="8 6 2 12 8 18"/>
       </svg>
     </button>
-    <button class="toolbar-btn" title="删除线 (Alt+Shift+5)" onclick={toggleStrikethrough}>
+    <button class="toolbar-btn" title={$t('toolbar.strikethrough')} onclick={toggleStrikethrough}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M16 4H9a3 3 0 0 0-3 3v0a3 3 0 0 0 3 3h6a3 3 0 0 1 3 3v0a3 3 0 0 1-3 3H8"/>
         <line x1="4" y1="12" x2="20" y2="12"/>
@@ -763,7 +764,7 @@ Start writing your thoughts here!
 
     <div class="toolbar-separator"></div>
 
-    <button class="toolbar-btn" class:active={showFileTree} title="文件树" onclick={() => showFileTree = !showFileTree}>
+    <button class="toolbar-btn" class:active={showFileTree} title={$t('toolbar.fileTree')} onclick={() => showFileTree = !showFileTree}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
       </svg>
@@ -771,7 +772,7 @@ Start writing your thoughts here!
 
     <!-- Recent Files -->
     <div class="recent-files-wrapper">
-      <button class="toolbar-btn" title="最近打开" onclick={() => showRecent = !showRecent}>
+      <button class="toolbar-btn" title={$t('toolbar.recent')} onclick={() => showRecent = !showRecent}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="10"/>
           <polyline points="12 6 12 12 16 14"/>
@@ -781,13 +782,13 @@ Start writing your thoughts here!
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div class="recent-dropdown" onclick={(e) => e.stopPropagation()}>
           <div class="recent-header">
-            <span>最近打开</span>
+            <span>{$t('recent.title')}</span>
             {#if recentFiles.length > 0}
-              <button class="recent-clear-btn" onclick={clearRecentFiles}>清空</button>
+              <button class="recent-clear-btn" onclick={clearRecentFiles}>{$t('recent.clear')}</button>
             {/if}
           </div>
           {#if recentFiles.length === 0}
-            <div class="recent-empty">暂无记录</div>
+            <div class="recent-empty">{$t('recent.empty')}</div>
           {:else}
             {#each recentFiles as file}
               <button class="recent-item" onclick={() => openRecentFile(file.path)} title={file.path}>
@@ -800,7 +801,7 @@ Start writing your thoughts here!
       {/if}
     </div>
 
-    <button class="toolbar-btn" title="大纲导航" onclick={() => showOutline = !showOutline}>
+    <button class="toolbar-btn" title={$t('toolbar.outline')} onclick={() => showOutline = !showOutline}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <line x1="8" y1="6" x2="21" y2="6"/>
         <line x1="8" y1="12" x2="21" y2="12"/>
@@ -810,13 +811,13 @@ Start writing your thoughts here!
         <line x1="3" y1="18" x2="3.01" y2="18"/>
       </svg>
     </button>
-    <button class="toolbar-btn" class:active={isSplitMode} title="双栏模式 (Ctrl+Shift+/)" onclick={toggleSplitMode}>
+    <button class="toolbar-btn" class:active={isSplitMode} title={$t('toolbar.split')} onclick={toggleSplitMode}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <rect x="3" y="3" width="18" height="18" rx="2"/>
         <line x1="12" y1="3" x2="12" y2="21"/>
       </svg>
     </button>
-    <button class="toolbar-btn" class:active={isSourceMode} title="源码模式 (Ctrl+/)" onclick={toggleSourceMode}>
+    <button class="toolbar-btn" class:active={isSourceMode} title={$t('toolbar.source')} onclick={toggleSourceMode}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <polyline points="16 18 22 12 16 6"/>
         <polyline points="8 6 2 12 8 18"/>
@@ -829,7 +830,10 @@ Start writing your thoughts here!
 
     <div class="toolbar-separator"></div>
 
-    <button class="toolbar-btn" title="切换主题" onclick={toggleTheme}>
+    <button class="toolbar-btn" title={$t('lang.switch')} onclick={() => locale.set($locale === 'zh' ? 'en' : 'zh')}>
+      {$locale === 'zh' ? '中' : 'En'}
+    </button>
+    <button class="toolbar-btn" title={$t('toolbar.theme')} onclick={toggleTheme}>
       {#if theme === 'light'}
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
@@ -868,8 +872,8 @@ Start writing your thoughts here!
 
   <!-- Status Bar -->
   <div class="status-bar">
-    <span>{statusText}</span>
-    <span class="status-center">{wordCount} 字 · {charCount} 字符 · {readTime}</span>
-    <span>{theme === 'dark' ? '暗色' : '亮色'}模式</span>
+    <span>{statusText || $t('status.ready')}</span>
+    <span class="status-center">{wordCount} {$t('status.words')} · {charCount} {$t('status.chars')} · {readTime}</span>
+    <span>{theme === 'dark' ? $t('status.themeDark') : $t('status.themeLight')}</span>
   </div>
 </div>
