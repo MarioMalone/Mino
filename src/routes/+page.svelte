@@ -2,7 +2,7 @@
   import { onMount, onDestroy, tick } from 'svelte'
   import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
   import { createEditor, getEditorMarkdown, destroyEditor, toggleBold, toggleItalic, toggleCode, toggleStrikethrough, onEditorChange, offEditorChange, insertTextAtCursor, getEditorInstance } from '$lib/editor'
-  import { openFileDialog, saveFileDialog, readFileContent, writeFileContent, copyFile, getDirectory, getRelativePath, checkWebView2 } from '$lib/file'
+  import { openFileDialog, saveFileDialog, readFileContent, writeFileContent, copyFile, getDirectory, getRelativePath, checkWebView2, getArgs, extractMdPathFromArgs } from '$lib/file'
   import { createSplitView, destroySplitView, getSplitViewContent, isSplitViewActive } from '$lib/split-view'
   import SearchBar from '$lib/SearchBar.svelte'
   import OutlinePanel from '$lib/OutlinePanel.svelte'
@@ -108,6 +108,25 @@ Start writing your thoughts here!
         console.log('[Mino] Milkdown first 200 chars:', milkdown.innerHTML.substring(0, 200))
       }
     }, 1000)
+
+    // Check for file association: open .md file from CLI args
+    try {
+      const args = await getArgs()
+      const mdPath = extractMdPathFromArgs(args)
+      if (mdPath) {
+        const content = await readFileContent(mdPath)
+        currentFilePath = mdPath
+        isModified = false
+        statusText = `已加载: ${mdPath.split('\\').pop()}`
+        await destroyEditor()
+        await initEditor(content)
+        updateWordCount(content)
+        startAutoSave()
+        addRecentFile(mdPath)
+      }
+    } catch (e) {
+      console.warn('[Mino] File association check failed:', e)
+    }
 
     // Register keyboard shortcuts
     window.addEventListener('keydown', handleKeydown)

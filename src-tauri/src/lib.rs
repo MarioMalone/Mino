@@ -143,6 +143,13 @@ fn get_file_info(path: String) -> Result<serde_json::Value, String> {
     }))
 }
 
+/// Get command-line arguments (for file association support).
+/// When a .md file is double-clicked, Windows passes the file path as an arg.
+#[tauri::command]
+fn get_args() -> Vec<String> {
+    std::env::args().collect()
+}
+
 /// Check if WebView2 runtime is installed on Windows.
 /// Returns { installed: bool, version: String? }
 #[tauri::command]
@@ -193,7 +200,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             read_file, write_file, copy_file,
             read_directory, read_file_bytes, get_file_info,
-            check_webview2,
+            check_webview2, get_args,
             sidecar::check_pandoc, sidecar::get_pandoc_version,
             sidecar::export_with_pandoc, sidecar::get_export_formats
         ])

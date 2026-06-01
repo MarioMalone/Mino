@@ -52,6 +52,30 @@ export async function checkWebView2(): Promise<{ installed: boolean; version: st
 /**
  * Get the directory of a file path.
  */
+
+/**
+ * Get command-line arguments (for file association).
+ * When user double-clicks a .md file, the path is passed as a CLI arg.
+ */
+export async function getArgs(): Promise<string[]> {
+  return await invoke('get_args')
+}
+
+/**
+ * Extract a .md file path from CLI arguments.
+ * Returns the path if found, null otherwise.
+ */
+export function extractMdPathFromArgs(args: string[]): string | null {
+  for (const arg of args) {
+    // Skip flags and the executable path
+    if (arg.startsWith('-') || arg.startsWith('--')) continue
+    // Check if it's a .md file
+    if (arg.toLowerCase().endsWith('.md')) {
+      return arg
+    }
+  }
+  return null
+}
 export function getDirectory(filePath: string): string {
   const parts = filePath.replace(/\//g, '\\').split('\\')
   parts.pop()
