@@ -1,12 +1,14 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte'
-  import { createEditor, getEditorMarkdown, destroyEditor, toggleBold, toggleItalic, toggleCode, toggleStrikethrough, onEditorChange, offEditorChange, insertTextAtCursor } from '$lib/editor'
+  import { createEditor, getEditorMarkdown, destroyEditor, toggleBold, toggleItalic, toggleCode, toggleStrikethrough, onEditorChange, offEditorChange, insertTextAtCursor, getEditorInstance } from '$lib/editor'
   import { openFileDialog, saveFileDialog, readFileContent, writeFileContent, copyFile, getDirectory, getRelativePath } from '$lib/file'
   import { createSplitView, destroySplitView, getSplitViewContent, isSplitViewActive } from '$lib/split-view'
   import SearchBar from '$lib/SearchBar.svelte'
   import OutlinePanel from '$lib/OutlinePanel.svelte'
   import FileTree from '$lib/FileTree.svelte'
   import ExportDialog from '$lib/ExportDialog.svelte'
+  import PerfPanel from '$lib/PerfPanel.svelte'
+  import { runBenchmark } from '$lib/perf'
   import '../styles/themes.css'
   import 'katex/dist/katex.min.css'
 
@@ -41,6 +43,9 @@
   let showFileTree = $state(false)
   // Export dialog state
   let showExport = $state(false)
+  // Perf panel state
+  let showPerf = $state(false)
+  let perfPanelRef: PerfPanel | undefined = $state()
 
   const defaultContent = `# 欢迎使用 Mino / Welcome to Mino
 
@@ -303,6 +308,12 @@ Start writing your thoughts here!
             await toggleSourceMode()
           }
           break
+        case 'p':
+          if (e.shiftKey) {
+            e.preventDefault()
+            await runPerfBench()
+          }
+          break
       }
     }
     // Alt+Shift+5 for strikethrough
@@ -457,6 +468,33 @@ Start writing your thoughts here!
     return getEditorMarkdown()
   }
 
+  // ===== Performance Benchmark =====
+
+  async function runPerfBench() {
+    const instance = getEditorInstance()
+    if (!instance) {
+      statusText = '请先打开编辑器'
+      return
+    }
+    if (isSourceMode || isSplitMode) {
+      statusText = '请切换到即时预览模式再运行性能测试'
+      return
+    }
+
+    showPerf = true
+    statusText = '正在运行性能基准测试...'
+
+    try {
+      const result = await runBenchmark(instance)
+      perfPanelRef?.setMetrics(result)
+      statusText = result.inputLatencyP95 <= result.target
+        ? `性能测试通过: P95=${result.inputLatencyP95.toFixed(1)}ms`
+        : `性能测试未达标: P95=${result.inputLatencyP95.toFixed(1)}ms`
+    } catch (err) {
+      statusText = `性能测试失败: ${err}`
+    }
+  }
+
   // ===== File Tree =====
 
   async function handleFileTreeSelect(path: string) {
@@ -600,6 +638,7 @@ Start writing your thoughts here!
 <OutlinePanel bind:visible={showOutline} />
 <FileTree bind:visible={showFileTree} onFileSelect={handleFileTreeSelect} />
 <ExportDialog bind:visible={showExport} {currentFilePath} getContent={getExportContent} />
+<PerfPanel bind:visible={showPerf} bind:this={perfPanelRef} />
 
 <div class="app-container">
   <!-- Toolbar -->
